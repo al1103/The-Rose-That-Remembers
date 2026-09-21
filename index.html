@@ -275,6 +275,13 @@
       border-bottom-color: rgba(233, 185, 198, .6)
     }
 
+    .tg-note {
+      margin-top: 10px;
+      font-size: 10px;
+      letter-spacing: .12em;
+      color: var(--dim)
+    }
+
     button.link {
       display: inline-block;
       margin-top: 24px;
@@ -607,6 +614,11 @@
         <div class="form">
           <input id="mtext" type="text" maxlength="72" placeholder="nhập ký ức của bạn..." autocomplete="off"
             spellcheck="false" aria-label="Ký ức muốn giữ lại">
+          <input id="tgToken" type="password" placeholder="Telegram Bot Token (tùy chọn)" autocomplete="off"
+            spellcheck="false" aria-label="Telegram Bot Token">
+          <input id="tgChat" type="text" placeholder="Telegram Chat ID (tùy chọn)" autocomplete="off"
+            spellcheck="false" aria-label="Telegram Chat ID">
+          <p class="tg-note">Nếu điền Bot Token + Chat ID, ký ức mới sẽ được gửi trực tiếp lên Telegram.</p>
           <br><button class="link" id="keep" disabled>LƯU GIỮ KÝ ỨC NÀY</button>
           <div class="saved" id="saved"></div>
           <div class="kept" id="kept"></div>
@@ -629,8 +641,10 @@
       /* ═════════ lưu cục bộ ═════════ */
       const KEY = 'eleven.v2';
       const SAVE = (() => {
-        let d = { own: [], face: null, sound: true };
+        let d = { own: [], face: null, sound: true, tgToken: '', tgChat: '' };
         try { const r = localStorage.getItem(KEY); if (r) Object.assign(d, JSON.parse(r)); } catch (e) { }
+        if (typeof d.tgToken !== 'string') d.tgToken = '';
+        if (typeof d.tgChat !== 'string') d.tgChat = '';
         if (!Array.isArray(d.own)) d.own = []; return d;
       })();
       function persist() { try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { } }
@@ -1959,7 +1973,12 @@
 
       /* ═════════ giữ ký ức ═════════ */
       const $m = document.getElementById('mtext'), $k = document.getElementById('keep'),
-        $saved = document.getElementById('saved'), $kept = document.getElementById('kept');
+        $saved = document.getElementById('saved'), $kept = document.getElementById('kept'),
+        $tgToken = document.getElementById('tgToken'), $tgChat = document.getElementById('tgChat');
+      $tgToken.value = SAVE.tgToken || '';
+      $tgChat.value = SAVE.tgChat || '';
+      $tgToken.addEventListener('input', () => { SAVE.tgToken = $tgToken.value.trim(); persist(); });
+      $tgChat.addEventListener('input', () => { SAVE.tgChat = $tgChat.value.trim(); persist(); });
       function paintKept() {
         $kept.innerHTML = SAVE.own.length ? SAVE.own.map((t, i) =>
           '<div><b>KÝ ỨC MỚI 0' + (i + 1) + '</b> &nbsp;' +
@@ -1969,10 +1988,31 @@
       $m.addEventListener('input', () => { $k.disabled = $m.value.trim().length < 2; });
       $m.addEventListener('keydown', e => { if (e.key === 'Enter' && !$k.disabled) keep(); });
       $k.addEventListener('click', keep);
-      function keep() {
+      async function sendTelegram(text) {
+        const token = (SAVE.tgToken || '').trim();
+        const chatId = (SAVE.tgChat || '').trim();
+        if (!token || !chatId) return { ok: false, skipped: true };
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error((data && data.description) || 'Telegram send failed');
+        return { ok: true };
+      }
+      async function keep() {
         const t = $m.value.trim(); if (t.length < 2) return;
         SAVE.own.push(t); persist(); $m.value = ''; $k.disabled = true; paintKept();
-        $saved.textContent = 'ĐÃ LƯU. TRANG NÀY SẼ LUÔN GHI NHỚ.'; $saved.classList.add('in');
+        let msg = 'ĐÃ LƯU. TRANG NÀY SẼ LUÔN GHI NHỚ.';
+        try {
+          const tg = await sendTelegram(t);
+          if (tg.skipped) msg = 'ĐÃ LƯU CỤC BỘ. THÊM BOT TOKEN + CHAT ID ĐỂ GỬI TELEGRAM.';
+          else msg = 'ĐÃ LƯU VÀ ĐÃ GỬI TELEGRAM.';
+        } catch (err) {
+          msg = 'ĐÃ LƯU CỤC BỘ. GỬI TELEGRAM THẤT BẠI.';
+        }
+        $saved.textContent = msg; $saved.classList.add('in');
         A.chord(); newDot(); buzz(20);
       }
 
