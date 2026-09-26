@@ -1,0 +1,6 @@
+{
+  "name": "the-rose-that-remembers",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" }
+}
